@@ -1,0 +1,10 @@
+template: testify
+packages:
+  github.com/byron1st/rein/pkg/httputil:
+    config:
+      dir: "pkg/llm"
+      filename: "mock_client_test.go"
+      pkgname: "llm_test"
+      structname: "MockClient"
+    interfaces:
+      Client:

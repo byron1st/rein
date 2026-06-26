@@ -33,7 +33,7 @@ Rein is a minimal Go CLI agent core that runs a synchronous OpenAI-compatible ch
 ## Code Conventions
 
 - Keep core provider integration on `net/http` and `encoding/json` unless the SPEC changes.
-- Wrap errors with operation context using `fmt.Errorf("read_file %s: %w", path, err)`.
+- Wrap errors by joining a per-call-site sentinel with the underlying error, e.g. `errors.Join(ErrReadFile, err)`.
 - Keep tool schemas owned by each tool through its `Schema()` method.
 - Execute multiple tool calls sequentially in response order.
 - See [docs/go-conventions.md](docs/go-conventions.md) for the full Go rules.
