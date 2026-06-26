@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
+	"net/url"
 	"time"
 
 	"github.com/byron1st/rein/pkg/httputil"
@@ -19,6 +19,7 @@ const maxRetries = 5
 const defaultBaseDelay = 500 * time.Millisecond
 
 var (
+	ErrFailedToParseLLMBaseURL   = errors.New("failed to parse llm base url")
 	ErrFailedToEncodeLLMRequest  = errors.New("failed to encode llm request")
 	ErrInternalLLMServerStatus   = errors.New("internal llm server status")
 	ErrBadRequestToLLMStatus     = errors.New("bad request tollm status")
@@ -33,35 +34,40 @@ type Client interface {
 	CreateChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error)
 }
 
-type httpClient struct {
-	baseURL   string
-	apiKey    string
-	doer      httputil.Client
-	baseDelay time.Duration
+type openAICompatibleClient struct {
+	baseURL    string
+	apiKey     string
+	httpClient httputil.Client
+	baseDelay  time.Duration
 }
 
 // Option configures the client returned by New.
-type Option func(*httpClient)
+type Option func(*openAICompatibleClient)
 
 // WithHTTPClient overrides the HTTP transport, primarily so tests can inject a
 // mock in place of the default httputil.Client.
 func WithHTTPClient(c httputil.Client) Option {
-	return func(hc *httpClient) { hc.doer = c }
+	return func(hc *openAICompatibleClient) { hc.httpClient = c }
 }
 
 // WithRetryBaseDelay overrides the base backoff delay between retries.
 func WithRetryBaseDelay(d time.Duration) Option {
-	return func(c *httpClient) { c.baseDelay = d }
+	return func(c *openAICompatibleClient) { c.baseDelay = d }
 }
 
-// New builds a Client targeting baseURL. apiKey may be empty for local
+// MustNew builds a Client targeting baseURL. apiKey may be empty for local
 // providers such as Ollama, in which case no Authorization header is sent.
-func New(baseURL, apiKey string, opts ...Option) Client {
-	c := &httpClient{
-		baseURL:   baseURL,
-		apiKey:    apiKey,
-		doer:      httputil.New(),
-		baseDelay: defaultBaseDelay,
+func MustNew(baseURL, apiKey string, opts ...Option) Client {
+	parsedUrl, err := url.Parse(baseURL)
+	if err != nil {
+		panic(errors.Join(ErrFailedToParseLLMBaseURL, err))
+	}
+
+	c := &openAICompatibleClient{
+		baseURL:    parsedUrl.JoinPath("v1", "chat", "completions").String(),
+		apiKey:     apiKey,
+		httpClient: httputil.New(),
+		baseDelay:  defaultBaseDelay,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -69,7 +75,7 @@ func New(baseURL, apiKey string, opts ...Option) Client {
 	return c
 }
 
-func (c *httpClient) CreateChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) {
+func (c *openAICompatibleClient) CreateChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, errors.Join(ErrFailedToEncodeLLMRequest, err)
@@ -96,14 +102,13 @@ func (c *httpClient) CreateChatCompletion(ctx context.Context, req ChatCompletio
 
 // do performs a single request attempt. The bool reports whether the error is
 // transient (transport failure or 5xx) and the request should be retried.
-func (c *httpClient) do(ctx context.Context, body []byte) (*ChatCompletionResponse, bool, error) {
-	url := strings.TrimRight(c.baseURL, "/") + "/v1/chat/completions"
+func (c *openAICompatibleClient) do(ctx context.Context, body []byte) (*ChatCompletionResponse, bool, error) {
 	var headers map[string]string
 	if c.apiKey != "" {
 		headers = map[string]string{"Authorization": "Bearer " + c.apiKey}
 	}
 
-	httpResp, err := c.doer.PostJSON(ctx, url, body, headers)
+	httpResp, err := c.httpClient.PostJSON(ctx, c.baseURL, body, headers)
 	if err != nil {
 		if errors.Is(err, httputil.ErrFailedToBuildRequest) {
 			return nil, false, err
@@ -128,7 +133,7 @@ func (c *httpClient) do(ctx context.Context, body []byte) (*ChatCompletionRespon
 
 // backoff waits before retry number attempt, doubling the base delay each time,
 // and returns early if the context is canceled.
-func (c *httpClient) backoff(ctx context.Context, attempt int) error {
+func (c *openAICompatibleClient) backoff(ctx context.Context, attempt int) error {
 	delay := c.baseDelay << (attempt - 1)
 	select {
 	case <-time.After(delay):

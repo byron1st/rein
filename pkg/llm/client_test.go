@@ -38,7 +38,7 @@ func sampleRequest() llm.ChatCompletionRequest {
 // newTestClient builds a client wired to the mock transport with a negligible
 // backoff so retry tests stay fast and deterministic.
 func newTestClient(apiKey string, doer httputil.Client) llm.Client {
-	return llm.New("http://provider.test", apiKey,
+	return llm.MustNew("http://provider.test", apiKey,
 		llm.WithHTTPClient(doer),
 		llm.WithRetryBaseDelay(time.Microsecond),
 	)
@@ -238,7 +238,7 @@ func TestCreateChatCompletion_HonorsContextCancellationDuringBackoff(t *testing.
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	client := llm.New("http://provider.test", "key",
+	client := llm.MustNew("http://provider.test", "key",
 		llm.WithHTTPClient(doer),
 		llm.WithRetryBaseDelay(time.Hour), // backoff would block; cancellation must win
 	)
