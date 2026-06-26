@@ -7,7 +7,10 @@ import (
 	"net/http"
 )
 
-var ErrBuildRequest = errors.New("httputil build request")
+var (
+	ErrFailedToBuildRequest  = errors.New("failed to build request")
+	ErrFailedToDoHTTPRequest = errors.New("failed to do http request")
+)
 
 // Client abstracts a JSON POST round trip so callers can mock the transport in
 // tests.
@@ -33,11 +36,16 @@ func New() Client {
 func (c *httpClient) PostJSON(ctx context.Context, url string, body []byte, headers map[string]string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.Join(ErrBuildRequest, err)
+		return nil, errors.Join(ErrFailedToBuildRequest, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	return c.http.Do(req)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, errors.Join(ErrFailedToDoHTTPRequest, err)
+	}
+	return resp, nil
 }

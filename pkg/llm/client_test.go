@@ -140,19 +140,20 @@ func TestCreateChatCompletion_RetriesExhaustedOnServerError(t *testing.T) {
 	_, err := client.CreateChatCompletion(context.Background(), sampleRequest())
 
 	require.ErrorIs(t, err, llm.ErrLLMRetriesExhausted)
-	require.ErrorIs(t, err, llm.ErrLLMServerStatus)
+	require.ErrorIs(t, err, llm.ErrInternalLLMServerStatus)
 	doer.AssertNumberOfCalls(t, "PostJSON", totalAttempts)
 }
 
 func TestCreateChatCompletion_RetriesExhaustedOnTransportError(t *testing.T) {
+	transportErr := errors.New("dial tcp: connection refused")
 	doer := mockhttputil.NewMockClient(t)
-	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("dial tcp: connection refused")).Times(totalAttempts)
+	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, transportErr).Times(totalAttempts)
 
 	client := newTestClient("key", doer)
 	_, err := client.CreateChatCompletion(context.Background(), sampleRequest())
 
 	require.ErrorIs(t, err, llm.ErrLLMRetriesExhausted)
-	require.ErrorIs(t, err, llm.ErrLLMTransport)
+	require.ErrorIs(t, err, transportErr)
 	doer.AssertNumberOfCalls(t, "PostJSON", totalAttempts)
 }
 
@@ -163,7 +164,7 @@ func TestCreateChatCompletion_ClientErrorNoRetry(t *testing.T) {
 	client := newTestClient("key", doer)
 	_, err := client.CreateChatCompletion(context.Background(), sampleRequest())
 
-	require.ErrorIs(t, err, llm.ErrLLMStatus)
+	require.ErrorIs(t, err, llm.ErrBadRequestToLLMStatus)
 	require.NotErrorIs(t, err, llm.ErrLLMRetriesExhausted)
 	doer.AssertNumberOfCalls(t, "PostJSON", 1)
 }
@@ -175,7 +176,7 @@ func TestCreateChatCompletion_DecodeError(t *testing.T) {
 	client := newTestClient("key", doer)
 	_, err := client.CreateChatCompletion(context.Background(), sampleRequest())
 
-	require.ErrorIs(t, err, llm.ErrLLMDecode)
+	require.ErrorIs(t, err, llm.ErrFailedToDecodeLLMResponse)
 	doer.AssertNumberOfCalls(t, "PostJSON", 1)
 }
 
@@ -190,19 +191,18 @@ func TestCreateChatCompletion_EncodeError(t *testing.T) {
 	req.Tools = []llm.ToolDefinition{{Type: "function", Function: json.RawMessage(`{invalid`)}}
 	_, err := client.CreateChatCompletion(context.Background(), req)
 
-	require.ErrorIs(t, err, llm.ErrLLMEncodeRequest)
+	require.ErrorIs(t, err, llm.ErrFailedToEncodeLLMRequest)
 }
 
 func TestCreateChatCompletion_BuildRequestErrorNoRetry(t *testing.T) {
 	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(nil, errors.Join(httputil.ErrBuildRequest, errors.New("bad url"))).Once()
+		Return(nil, errors.Join(httputil.ErrFailedToBuildRequest, errors.New("bad url"))).Once()
 
 	client := newTestClient("key", doer)
 	_, err := client.CreateChatCompletion(context.Background(), sampleRequest())
 
-	require.ErrorIs(t, err, llm.ErrLLMBuildRequest)
-	require.NotErrorIs(t, err, llm.ErrLLMTransport)
+	require.ErrorIs(t, err, httputil.ErrFailedToBuildRequest)
 	require.NotErrorIs(t, err, llm.ErrLLMRetriesExhausted)
 	doer.AssertNumberOfCalls(t, "PostJSON", 1)
 }
@@ -244,6 +244,6 @@ func TestCreateChatCompletion_HonorsContextCancellationDuringBackoff(t *testing.
 	)
 	_, err := client.CreateChatCompletion(ctx, sampleRequest())
 
-	require.ErrorIs(t, err, llm.ErrLLMCanceled)
+	require.ErrorIs(t, err, llm.ErrLLMContextCanceled)
 	doer.AssertNumberOfCalls(t, "PostJSON", 1)
 }

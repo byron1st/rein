@@ -54,7 +54,7 @@ func TestPostJSON_HeadersOverrideDefaultContentType(t *testing.T) {
 func TestPostJSON_BuildError(t *testing.T) {
 	_, err := httputil.New().PostJSON(context.Background(), "://bad", []byte(`{}`), nil)
 
-	require.ErrorIs(t, err, httputil.ErrBuildRequest)
+	require.ErrorIs(t, err, httputil.ErrFailedToBuildRequest)
 }
 
 func TestPostJSON_TransportError(t *testing.T) {
@@ -65,5 +65,5 @@ func TestPostJSON_TransportError(t *testing.T) {
 	_, err := httputil.New().PostJSON(context.Background(), url, []byte(`{}`), nil)
 
 	require.Error(t, err)
-	require.NotErrorIs(t, err, httputil.ErrBuildRequest, "a transport failure must not be reported as a build error")
+	require.NotErrorIs(t, err, httputil.ErrFailedToBuildRequest, "a transport failure must not be reported as a build error")
 }

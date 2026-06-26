@@ -19,14 +19,12 @@ const maxRetries = 5
 const defaultBaseDelay = 500 * time.Millisecond
 
 var (
-	ErrLLMEncodeRequest    = errors.New("llm encode request")
-	ErrLLMBuildRequest     = errors.New("llm build request")
-	ErrLLMTransport        = errors.New("llm transport")
-	ErrLLMServerStatus     = errors.New("llm server status")
-	ErrLLMStatus           = errors.New("llm status")
-	ErrLLMDecode           = errors.New("llm decode response")
-	ErrLLMCanceled         = errors.New("llm canceled")
-	ErrLLMRetriesExhausted = errors.New("llm retries exhausted")
+	ErrFailedToEncodeLLMRequest  = errors.New("failed to encode llm request")
+	ErrInternalLLMServerStatus   = errors.New("internal llm server status")
+	ErrBadRequestToLLMStatus     = errors.New("bad request tollm status")
+	ErrFailedToDecodeLLMResponse = errors.New("failed to decode llm response")
+	ErrLLMContextCanceled        = errors.New("llm context canceled")
+	ErrLLMRetriesExhausted       = errors.New("llm retries exhausted")
 )
 
 // Client is the OpenAI-compatible chat completions client the agent loop
@@ -74,7 +72,7 @@ func New(baseURL, apiKey string, opts ...Option) Client {
 func (c *httpClient) CreateChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, errors.Join(ErrLLMEncodeRequest, err)
+		return nil, errors.Join(ErrFailedToEncodeLLMRequest, err)
 	}
 
 	var lastErr error
@@ -107,23 +105,23 @@ func (c *httpClient) do(ctx context.Context, body []byte) (*ChatCompletionRespon
 
 	httpResp, err := c.doer.PostJSON(ctx, url, body, headers)
 	if err != nil {
-		if errors.Is(err, httputil.ErrBuildRequest) {
-			return nil, false, errors.Join(ErrLLMBuildRequest, err)
+		if errors.Is(err, httputil.ErrFailedToBuildRequest) {
+			return nil, false, err
 		}
-		return nil, true, errors.Join(ErrLLMTransport, err)
+		return nil, true, err
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
 	switch {
 	case httpResp.StatusCode >= 500:
-		return nil, true, errors.Join(ErrLLMServerStatus, fmt.Errorf("status %d", httpResp.StatusCode))
+		return nil, true, errors.Join(ErrInternalLLMServerStatus, fmt.Errorf("status %d", httpResp.StatusCode))
 	case httpResp.StatusCode >= 400:
-		return nil, false, errors.Join(ErrLLMStatus, fmt.Errorf("status %d", httpResp.StatusCode))
+		return nil, false, errors.Join(ErrBadRequestToLLMStatus, fmt.Errorf("status %d", httpResp.StatusCode))
 	}
 
 	var out ChatCompletionResponse
 	if err := json.NewDecoder(httpResp.Body).Decode(&out); err != nil {
-		return nil, false, errors.Join(ErrLLMDecode, err)
+		return nil, false, errors.Join(ErrFailedToDecodeLLMResponse, err)
 	}
 	return &out, false, nil
 }
@@ -136,6 +134,6 @@ func (c *httpClient) backoff(ctx context.Context, attempt int) error {
 	case <-time.After(delay):
 		return nil
 	case <-ctx.Done():
-		return errors.Join(ErrLLMCanceled, ctx.Err())
+		return errors.Join(ErrLLMContextCanceled, ctx.Err())
 	}
 }
