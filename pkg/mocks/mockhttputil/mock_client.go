@@ -2,7 +2,7 @@
 // github.com/vektra/mockery
 // template: testify
 
-package llm_test
+package mockhttputil
 
 import (
 	"context"
@@ -76,7 +76,7 @@ type MockClient_PostJSON_Call struct {
 //   - url string
 //   - body []byte
 //   - headers map[string]string
-func (_e *MockClient_Expecter) PostJSON(ctx interface{}, url interface{}, body interface{}, headers interface{}) *MockClient_PostJSON_Call {
+func (_e *MockClient_Expecter) PostJSON(ctx any, url any, body any, headers any) *MockClient_PostJSON_Call {
 	return &MockClient_PostJSON_Call{Call: _e.mock.On("PostJSON", ctx, url, body, headers)}
 }
 

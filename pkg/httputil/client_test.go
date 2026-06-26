@@ -32,7 +32,7 @@ func TestPostJSON_SendsRequest(t *testing.T) {
 	resp, err := httputil.New().PostJSON(context.Background(), server.URL, []byte(`{"key":"value"}`), headers)
 
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
@@ -47,7 +47,7 @@ func TestPostJSON_HeadersOverrideDefaultContentType(t *testing.T) {
 	resp, err := httputil.New().PostJSON(context.Background(), server.URL, []byte(`{}`), headers)
 
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
@@ -55,4 +55,15 @@ func TestPostJSON_BuildError(t *testing.T) {
 	_, err := httputil.New().PostJSON(context.Background(), "://bad", []byte(`{}`), nil)
 
 	require.ErrorIs(t, err, httputil.ErrBuildRequest)
+}
+
+func TestPostJSON_TransportError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := server.URL
+	server.Close() // make the endpoint unreachable so the round trip fails
+
+	_, err := httputil.New().PostJSON(context.Background(), url, []byte(`{}`), nil)
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, httputil.ErrBuildRequest, "a transport failure must not be reported as a build error")
 }

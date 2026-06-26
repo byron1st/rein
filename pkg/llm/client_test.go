@@ -12,6 +12,7 @@ import (
 
 	"github.com/byron1st/rein/pkg/httputil"
 	"github.com/byron1st/rein/pkg/llm"
+	"github.com/byron1st/rein/pkg/mocks/mockhttputil"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +45,7 @@ func newTestClient(apiKey string, doer httputil.Client) llm.Client {
 }
 
 func TestCreateChatCompletion_ParsesContent(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(jsonResponse(200, `{"choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}`), nil).
 		Once()
@@ -64,7 +65,7 @@ func TestCreateChatCompletion_ParsesToolCalls(t *testing.T) {
 		`"tool_calls":[{"id":"call_1","type":"function",` +
 		`"function":{"name":"read_file","arguments":"{\"path\":\"foo.go\"}"}}]},` +
 		`"finish_reason":"tool_calls"}]}`
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(jsonResponse(200, body), nil).Once()
 
 	client := newTestClient("key", doer)
@@ -81,7 +82,7 @@ func TestCreateChatCompletion_ParsesToolCalls(t *testing.T) {
 }
 
 func TestCreateChatCompletion_SendsRequest(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, url string, body []byte, headers map[string]string) (*http.Response, error) {
 		require.Equal(t, "http://provider.test/v1/chat/completions", url)
 
@@ -102,7 +103,7 @@ func TestCreateChatCompletion_SendsRequest(t *testing.T) {
 }
 
 func TestCreateChatCompletion_OmitsToolsWhenEmpty(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, url string, body []byte, headers map[string]string) (*http.Response, error) {
 		var decoded map[string]any
 		require.NoError(t, json.Unmarshal(body, &decoded))
@@ -117,7 +118,7 @@ func TestCreateChatCompletion_OmitsToolsWhenEmpty(t *testing.T) {
 }
 
 func TestCreateChatCompletion_RetriesThenSucceeds(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(jsonResponse(500, ""), nil).Times(2)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(jsonResponse(200, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil).
@@ -132,7 +133,7 @@ func TestCreateChatCompletion_RetriesThenSucceeds(t *testing.T) {
 }
 
 func TestCreateChatCompletion_RetriesExhaustedOnServerError(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(jsonResponse(500, ""), nil).Times(totalAttempts)
 
 	client := newTestClient("key", doer)
@@ -144,7 +145,7 @@ func TestCreateChatCompletion_RetriesExhaustedOnServerError(t *testing.T) {
 }
 
 func TestCreateChatCompletion_RetriesExhaustedOnTransportError(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("dial tcp: connection refused")).Times(totalAttempts)
 
 	client := newTestClient("key", doer)
@@ -156,7 +157,7 @@ func TestCreateChatCompletion_RetriesExhaustedOnTransportError(t *testing.T) {
 }
 
 func TestCreateChatCompletion_ClientErrorNoRetry(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(jsonResponse(400, `{"error":"bad request"}`), nil).Once()
 
 	client := newTestClient("key", doer)
@@ -168,13 +169,41 @@ func TestCreateChatCompletion_ClientErrorNoRetry(t *testing.T) {
 }
 
 func TestCreateChatCompletion_DecodeError(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(jsonResponse(200, `{not json`), nil).Once()
 
 	client := newTestClient("key", doer)
 	_, err := client.CreateChatCompletion(context.Background(), sampleRequest())
 
 	require.ErrorIs(t, err, llm.ErrLLMDecode)
+	doer.AssertNumberOfCalls(t, "PostJSON", 1)
+}
+
+func TestCreateChatCompletion_EncodeError(t *testing.T) {
+	doer := mockhttputil.NewMockClient(t)
+	// No PostJSON expectation: marshalling must fail before any transport call,
+	// so the mock's cleanup also asserts the transport was never reached.
+
+	client := newTestClient("key", doer)
+	req := sampleRequest()
+	// An invalid json.RawMessage tool schema makes json.Marshal(req) fail.
+	req.Tools = []llm.ToolDefinition{{Type: "function", Function: json.RawMessage(`{invalid`)}}
+	_, err := client.CreateChatCompletion(context.Background(), req)
+
+	require.ErrorIs(t, err, llm.ErrLLMEncodeRequest)
+}
+
+func TestCreateChatCompletion_BuildRequestErrorNoRetry(t *testing.T) {
+	doer := mockhttputil.NewMockClient(t)
+	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, errors.Join(httputil.ErrBuildRequest, errors.New("bad url"))).Once()
+
+	client := newTestClient("key", doer)
+	_, err := client.CreateChatCompletion(context.Background(), sampleRequest())
+
+	require.ErrorIs(t, err, llm.ErrLLMBuildRequest)
+	require.NotErrorIs(t, err, llm.ErrLLMTransport)
+	require.NotErrorIs(t, err, llm.ErrLLMRetriesExhausted)
 	doer.AssertNumberOfCalls(t, "PostJSON", 1)
 }
 
@@ -189,7 +218,7 @@ func TestCreateChatCompletion_AuthorizationHeader(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			doer := NewMockClient(t)
+			doer := mockhttputil.NewMockClient(t)
 			doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, url string, body []byte, headers map[string]string) (*http.Response, error) {
 				require.Equal(t, tc.wantHeader, headers["Authorization"])
 				return jsonResponse(200, `{"choices":[]}`), nil
@@ -204,7 +233,7 @@ func TestCreateChatCompletion_AuthorizationHeader(t *testing.T) {
 }
 
 func TestCreateChatCompletion_HonorsContextCancellationDuringBackoff(t *testing.T) {
-	doer := NewMockClient(t)
+	doer := mockhttputil.NewMockClient(t)
 	doer.EXPECT().PostJSON(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(jsonResponse(500, ""), nil).Once()
 
 	ctx, cancel := context.WithCancel(context.Background())

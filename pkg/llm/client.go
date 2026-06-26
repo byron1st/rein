@@ -112,7 +112,7 @@ func (c *httpClient) do(ctx context.Context, body []byte) (*ChatCompletionRespon
 		}
 		return nil, true, errors.Join(ErrLLMTransport, err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	switch {
 	case httpResp.StatusCode >= 500:
