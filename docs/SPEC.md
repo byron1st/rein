@@ -21,14 +21,14 @@
         │  prompt
         ▼
   ┌───────────────┐   OpenAI-compatible    ┌────────────────────┐
-  │  Rein Agent    │── /chat/completions ──▶│ LLM Provider       │
-  │  Core (Go)    │◀──  (net/http, JSON) ──│ Ollama / OpenAI /…  │
+  │  Rein Agent   │── /chat/completions ──▶│ LLM Provider       │
+  │  Core (Go)    │◀──  (net/http, JSON) ──│ Ollama / OpenAI /… │
   └──────┬────────┘                        └────────────────────┘
          │ tool dispatch
          ▼
   ┌──────────────────────────────────────────────┐
-  │ Tools: read_file/write_file/edit_file,        │
-  │        bash, grep(rg), glob(fd)               │
+  │ Tools: read_file/write_file/edit_file,       │
+  │        bash, grep(rg), glob(fd)              │
   └──────┬───────────────────────────────────────┘
          ▼
    Filesystem · subprocess (rg / fd / bash)
@@ -56,7 +56,7 @@ pkg/tool/           Tool 인터페이스, Registry, dispatch             → FR-
 ## Conventions
 
 - **도구 실패는 루프를 죽이지 않는다**: 도구 에러는 Go error로 전파해 루프를 중단하는 대신, `role:"tool"` 메시지 content에 에러 문자열로 담아 모델에 반환(자기수정 유도). 네트워크·시스템 치명 오류만 루프 중단.
-- **에러 래핑**: `fmt.Errorf("read_file %s: %w", path, err)` 형태로 컨텍스트 포함.
+- **에러 래핑**: call site마다 sentinel을 선언하고 `errors.Join(ErrReadFile, err)`로 underlying 에러와 묶어 컨텍스트 포함.
 - **도구 출력 캡**: 모든 도구 출력은 **~50KB / 2000라인** 상한. 초과 시 중간 절단하고 전체 내용은 temp-file로 오프로드한 뒤 그 경로를 출력에 안내.
 - **Tool schema**: 각 Tool이 자신의 OpenAI function schema(JSON)를 자체 제공(`Schema()`).
 - **Config (env)**: `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`.

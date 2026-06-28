@@ -12,9 +12,13 @@ Project-local Go conventions for this repository. The agent file (`CLAUDE.md` / 
 
 ## Errors
 
-- Declare every error at the top of the file where it is used as an exported sentinel: `var ErrUpsertSchools = errors.New("upsert schools")`.
+- Declare every error at the top of the file where it is used as an exported sentinel: `var ErrFailedToUpsertSchools = errors.New("failed to upsert schools")`.
+- Name a sentinel after the failure, not the location: the message must read as "an error occurred" — use `failed to <verb> <object>` or a phrase naming the concrete condition (`ErrBadRequestToLLMStatus`, `ErrLLMContextCanceled`). A bare operation name used only to mark where an error passed through (`ErrUpsertSchools`, `ErrLLMTransport`) is prohibited.
 - Each `Err...` sentinel must be used in **exactly one** call site. Sharing one sentinel across multiple call sites is prohibited — declare a new variable for each use.
-- Prefer to Wrap errors by joining the sentinel with the underlying error: `errors.Join(ErrUpsertSchools, err)`.
+- Wrap with a sentinel **only at the boundary with a standard-library or third-party function**, and only once: `errors.Join(ErrFailedToDecodeLLMResponse, err)`. That join is the single point where the failure gains its sentinel.
+- When you originate the error yourself (a condition you detect, rather than an error value handed back to you), build it from the sentinel and add dynamic detail with `fmt.Errorf`: `errors.Join(ErrBadRequestToLLMStatus, fmt.Errorf("status %d", code))`.
+- When you propagate an error returned by **another function in this codebase**, return it unchanged — it already carries its sentinel, so re-wrapping only nests redundant context. This pass-through is what keeps error wrapping bounded.
+- Join a new sentinel onto an already-wrapped error only when adding a genuinely new fact, never to re-mark a passthrough — e.g. a retry loop that gives up: `errors.Join(ErrLLMRetriesExhausted, lastErr)`.
 
 ## Testing
 
