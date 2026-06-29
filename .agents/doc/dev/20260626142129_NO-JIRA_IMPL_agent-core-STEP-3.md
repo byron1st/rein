@@ -43,8 +43,8 @@ None
 ## Change Walkthrough (foundation-first)
 
 ### 1. sentinels & types [low / skim]
-도구별 실패 지점을 이름짓는 exported sentinel과 args 파싱 구조체. 각 sentinel은 한 call site에서만 사용된다(단, arg-parse sentinel은 parse 실패와 path 누락 검증 두 곳에서 재사용 — Key Decisions 참고).
-- `pkg/tool/fs.go:13` `Err*` sentinels — `ErrReadFileOpen`, `ErrWriteFile`, `ErrEditFileRead/NoMatch/MultiMatch/Write` 및 각 도구의 `Err*Args` 3종. go-conventions.md의 "sentinel은 실패를 서술" 규칙에 맞춰 메시지를 "failed to ..." 형태로 작성.
+도구별 실패 지점을 이름짓는 exported sentinel과 args 파싱 구조체. 각 sentinel은 정확히 한 call site에서만 사용된다(go-conventions.md "sentinel은 정확히 1 call site" 준수).
+- `pkg/tool/fs.go:13` `Err*` sentinels — `ErrReadFileOpen`, `ErrWriteFile`, `ErrEditFileRead/NoMatch/MultiMatch/Write` 및 각 도구의 arg-parse/missing-path sentinel 2종씩(총 6종: `ErrReadFileArgsParse`/`ErrReadFileMissingPath`, `ErrWriteFileArgsParse`/`ErrWriteFileMissingPath`, `ErrEditFileArgsParse`/`ErrEditFileMissingPath`). go-conventions.md의 "sentinel은 실패를 서술" 규칙에 맞춰 메시지를 "failed to ..." 형태로 작성하며, json.Unmarshal 실패 call site와 path 누락 검증 call site 각각에 별도 sentinel을 선언.
 - `pkg/tool/fs.go:52` `readFileArgs` — `Offset`/`Limit`를 `*int`로 받아 absent=nil → 기본값 분기를 명확히 함.
 - `pkg/tool/fs.go:124` `writeFileArgs`, `pkg/tool/fs.go:169` `editFileArgs` — 각각 `json` 태그 기반 파싱.
 
@@ -70,13 +70,13 @@ Step 6 registry 등록을 위한 생성자와 정적 schema.
 ### 6. tests [low / test-as-spec]
 `package tool_test`, `t.TempDir`, `testify/require` 기반. Step 2 테스트 스타일 일치.
 - `pkg/tool/fs_test.go:11` `jsonArgs` 헬퍼 — 테스트 fixture에서 marshal 에러를 즉시 실패시켜 call site를 한 줄로 유지.
-- `pkg/tool/fs_test.go:17`–`TestReadFile_*` — 기본 읽기, offset/limit 슬라이스(+ 경계 케이스 테이블), missing file → `errors.Is(ErrReadFileOpen)`, 대용량 파일 → `[output truncated` 마커 + offload 파일 내용 검증, malformed/missing path → 에러, schema/name 검증.
-- `TestWriteFile_*` — 신규 생성(바이트 수+경로 요약 검증), 덮어쓰기, 쓰기 실패 → `ErrWriteFile`, 빈 content → 빈 파일, schema/name 검증.
-- `TestEditFile_*` — unique-match 치환(디스크 내용 검증), 0매칭 → `ErrEditFileNoMatch` + 파일 불변, 다중 매칭 → `ErrEditFileMultiMatch` + "3 matches found" 메시지 + 파일 불변, missing file → `ErrEditFileRead`, malformed/missing path → 에러, schema/name 검증.
+- `pkg/tool/fs_test.go:17`–`TestReadFile_*` — 기본 읽기, offset/limit 슬라이스(+ 경계 케이스 테이블), missing file → `errors.Is(ErrReadFileOpen)`, 대용량 파일 → `[output truncated` 마커 + offload 파일 내용 검증, malformed args → `errors.Is(ErrReadFileArgsParse)`, missing path → `errors.Is(ErrReadFileMissingPath)`, schema/name 검증.
+- `TestWriteFile_*` — 신규 생성(바이트 수+경로 요약 검증), 덮어쓰기, 쓰기 실패 → `ErrWriteFile`, 빈 content → 빈 파일, malformed args → `errors.Is(ErrWriteFileArgsParse)`, missing path → `errors.Is(ErrWriteFileMissingPath)`, schema/name 검증.
+- `TestEditFile_*` — unique-match 치환(디스크 내용 검증), 0매칭 → `ErrEditFileNoMatch` + 파일 불변, 다중 매칭 → `ErrEditFileMultiMatch` + "3 matches found" 메시지 + 파일 불변, missing file → `ErrEditFileRead`, malformed args → `errors.Is(ErrEditFileArgsParse)`, missing path → `errors.Is(ErrEditFileMissingPath)`, schema/name 검증.
 
 ## Key Decisions
 
-- **arg-parse sentinel 재사용**: `ErrReadFileArgs`/`ErrWriteFileArgs`/`ErrEditFileArgs` 각각을 json.Unmarshal 실패 call site와 path 누락 검증 call site 두 곳에서 사용했다. go-conventions.md의 "sentinel은 정확히 1 call site" 규칙과 충돌하지만, 본 단계 지시문(최우선)이 "path == "" → the arg sentinel"을 명시적으로 요구했다. 두 분기 모두 "invalid arguments"라 동일한 의미론적 실패이며, 구체적 원인은 `fmt.Errorf` 메시지로 구분된다. 리뷰 게이트에서 분할 여부를 결정할 수 있다.
+- **arg sentinel per-call-site 분할(해결됨)**: 원래 `ErrReadFileArgs`/`ErrWriteFileArgs`/`ErrEditFileArgs` 각각을 json.Unmarshal 실패 call site와 path 누락 검증 call site 두 곳에서 재사용했으나, go-conventions.md의 "sentinel은 정확히 1 call site" 규칙 위반이었다. 리뷰 게이트에서 해당 위반을 해결하기 위해 각 도구의 arg sentinel을 parse 전용(`Err*ArgsParse`)과 missing-path 전용(`Err*MissingPath`)으로 분할했다. 이제 모든 sentinel이 정확히 한 call site에서만 사용된다.
 - **offset 1-indexed 규약**: sub-plan이 "1-indexed line number"를 요구. `sliceLines`는 1-indexed 입력을 0-indexed 슬라이스 인덱스로 변환. nil/0/음수는 기본값(1 / 남은 전부)으로 정규화.
 - **write_file 빈 content 허용**: content 필드를 비어있어도 유효한 빈 파일 쓰기로 처리. path만 필수 검증. 이는 "Both required"가 JSON schema의 필드 존재 의미(Schema에 `required`로 명시)이지, Execute 단의 비어있지 않음 강제가 아님으로 해석했다.
 - **read_file 요약 미캡핑 vs write/edit 요약**: write_file/edit_file의 요약 문자열은 항상 bound 내이므로 capOutput을 거치지 않고 직반환. read_file은 본문이 임의 길이이므로 capOutput 적용. Step 4 도구들도 동일 패턴을 따를 수 있다.
@@ -88,13 +88,15 @@ Step 6 registry 등록을 위한 생성자와 정적 schema.
 - `pkg/tool/fs_test.go:TestReadFile_LineSlicing_EdgeCases` — offset-only/limit-only/초과/0/음수 경계를 테이블로 고정.
 - `pkg/tool/fs_test.go:TestReadFile_MissingFile_ReturnsErrReadFileOpen` — `errors.Is(ErrReadFileOpen)`으로 sentinel 래핑을 고정.
 - `pkg/tool/fs_test.go:TestReadFile_LargeFile_TruncatesAndOffloads` — capOutput 오프로드 경로와 offload 파일 무결성을 고정.
-- `pkg/tool/fs_test.go:TestReadFile_MalformedArgs_ReturnsError`, `TestReadFile_MissingPath_ReturnsError` — 인자 검증 에러 경로 고정.
+- `pkg/tool/fs_test.go:TestReadFile_MalformedArgs_ReturnsErrReadFileArgsParse`, `TestReadFile_MissingPath_ReturnsErrReadFileMissingPath` — `errors.Is`로 parse/missing-path sentinel을 고정.
 - `pkg/tool/fs_test.go:TestWriteFile_CreateNewFile` — 요약 문자열 포맷("wrote N bytes to <path>")과 디스크 내용을 고정.
 - `pkg/tool/fs_test.go:TestWriteFile_OverwriteExistingFile` — 덮어쓰기 동작을 고정.
 - `pkg/tool/fs_test.go:TestWriteFile_EmptyContent_CreatesEmptyFile` — 빈 content 유효성을 고정.
+- `pkg/tool/fs_test.go:TestWriteFile_MalformedArgs_ReturnsErrWriteFileArgsParse`, `TestWriteFile_MissingRequiredFields_ReturnsErrWriteFileMissingPath` — `errors.Is`로 parse/missing-path sentinel을 고정.
 - `pkg/tool/fs_test.go:TestEditFile_UniqueMatch_ReplacesContent` — 정확히 1회 매칭 시 치환 결과를 고정.
 - `pkg/tool/fs_test.go:TestEditFile_NoMatch_ReturnsErrEditFileNoMatch_FileUnchanged` — 0매칭 시 에러 + 파일 불변을 고정.
 - `pkg/tool/fs_test.go:TestEditFile_MultiMatch_ReturnsErrEditFileMultiMatch_FileUnchanged` — 다중 매칭 시 매칭 수 메시지 + 파일 불변을 고정.
+- `pkg/tool/fs_test.go:TestEditFile_MalformedArgs_ReturnsErrEditFileArgsParse`, `TestEditFile_MissingPath_ReturnsErrEditFileMissingPath` — `errors.Is`로 parse/missing-path sentinel을 고정.
 - 각 도구의 `Schema_*`/`Name` 테스트 — schema JSON 구조와 도구명을 고정.
 
 ## Manual Verification

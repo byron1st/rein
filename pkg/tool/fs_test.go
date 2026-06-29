@@ -109,14 +109,14 @@ func TestReadFile_LargeFile_TruncatesAndOffloads(t *testing.T) {
 	require.Equal(t, content, string(full), "offloaded file must contain the full original content")
 }
 
-func TestReadFile_MalformedArgs_ReturnsError(t *testing.T) {
+func TestReadFile_MalformedArgs_ReturnsErrReadFileArgsParse(t *testing.T) {
 	_, err := tool.NewReadFileTool().Execute(context.Background(), json.RawMessage(`{not json`))
-	require.Error(t, err, "malformed JSON args must yield a non-nil error")
+	require.ErrorIs(t, err, tool.ErrReadFileArgsParse, "expected ErrReadFileArgsParse, got %v", err)
 }
 
-func TestReadFile_MissingPath_ReturnsError(t *testing.T) {
-	_, err := tool.NewReadFileTool().Execute(context.Background(), jsonArgs(t, map[string]any{}))
-	require.Error(t, err, "missing required path must yield a non-nil error")
+func TestReadFile_MissingPath_ReturnsErrReadFileMissingPath(t *testing.T) {
+	_, err := tool.NewReadFileTool().Execute(context.Background(), jsonArgs(t, map[string]any{"path": ""}))
+	require.ErrorIs(t, err, tool.ErrReadFileMissingPath, "expected ErrReadFileMissingPath, got %v", err)
 }
 
 func TestReadFile_Schema_ReturnsInnerFunctionObject(t *testing.T) {
@@ -181,14 +181,14 @@ func TestWriteFile_WriteFailure_ReturnsErrWriteFile(t *testing.T) {
 	require.ErrorIs(t, err, tool.ErrWriteFile)
 }
 
-func TestWriteFile_MalformedArgs_ReturnsError(t *testing.T) {
+func TestWriteFile_MalformedArgs_ReturnsErrWriteFileArgsParse(t *testing.T) {
 	_, err := tool.NewWriteFileTool().Execute(context.Background(), json.RawMessage(`{not json`))
-	require.Error(t, err, "malformed JSON args must yield a non-nil error")
+	require.ErrorIs(t, err, tool.ErrWriteFileArgsParse, "expected ErrWriteFileArgsParse, got %v", err)
 }
 
-func TestWriteFile_MissingRequiredFields_ReturnsError(t *testing.T) {
-	_, err := tool.NewWriteFileTool().Execute(context.Background(), jsonArgs(t, map[string]any{"content": "x"}))
-	require.Error(t, err, "missing path must yield a non-nil error")
+func TestWriteFile_MissingRequiredFields_ReturnsErrWriteFileMissingPath(t *testing.T) {
+	_, err := tool.NewWriteFileTool().Execute(context.Background(), jsonArgs(t, map[string]any{"path": "", "content": "x"}))
+	require.ErrorIs(t, err, tool.ErrWriteFileMissingPath, "expected ErrWriteFileMissingPath, got %v", err)
 }
 
 func TestWriteFile_EmptyContent_CreatesEmptyFile(t *testing.T) {
@@ -286,17 +286,18 @@ func TestEditFile_MissingFile_ReturnsErrEditFileRead(t *testing.T) {
 	require.ErrorIs(t, err, tool.ErrEditFileRead)
 }
 
-func TestEditFile_MalformedArgs_ReturnsError(t *testing.T) {
+func TestEditFile_MalformedArgs_ReturnsErrEditFileArgsParse(t *testing.T) {
 	_, err := tool.NewEditFileTool().Execute(context.Background(), json.RawMessage(`{not json`))
-	require.Error(t, err, "malformed JSON args must yield a non-nil error")
+	require.ErrorIs(t, err, tool.ErrEditFileArgsParse, "expected ErrEditFileArgsParse, got %v", err)
 }
 
-func TestEditFile_MissingPath_ReturnsError(t *testing.T) {
+func TestEditFile_MissingPath_ReturnsErrEditFileMissingPath(t *testing.T) {
 	_, err := tool.NewEditFileTool().Execute(context.Background(), jsonArgs(t, map[string]any{
-		"old_str": "x",
-		"new_str": "y",
+		"path":    "",
+		"old_str": "a",
+		"new_str": "b",
 	}))
-	require.Error(t, err, "missing required path must yield a non-nil error")
+	require.ErrorIs(t, err, tool.ErrEditFileMissingPath, "expected ErrEditFileMissingPath, got %v", err)
 }
 
 func TestEditFile_Schema_ReturnsInnerFunctionObject(t *testing.T) {

@@ -11,17 +11,20 @@ import (
 
 // Sentinels for the filesystem tools. Each is used at exactly one call site.
 var (
-	ErrReadFileOpen = errors.New("failed to read file")
-	ErrReadFileArgs = errors.New("invalid read_file arguments")
+	ErrReadFileOpen        = errors.New("failed to read file")
+	ErrReadFileArgsParse   = errors.New("failed to parse read_file arguments")
+	ErrReadFileMissingPath = errors.New("read_file path is required")
 
-	ErrWriteFile     = errors.New("failed to write file")
-	ErrWriteFileArgs = errors.New("invalid write_file arguments")
+	ErrWriteFile            = errors.New("failed to write file")
+	ErrWriteFileArgsParse   = errors.New("failed to parse write_file arguments")
+	ErrWriteFileMissingPath = errors.New("write_file path is required")
 
-	ErrEditFileRead       = errors.New("failed to read file for edit")
-	ErrEditFileNoMatch    = errors.New("old_str not found")
-	ErrEditFileMultiMatch = errors.New("multiple matches found")
-	ErrEditFileWrite      = errors.New("failed to write edited file")
-	ErrEditFileArgs       = errors.New("invalid edit_file arguments")
+	ErrEditFileRead        = errors.New("failed to read file for edit")
+	ErrEditFileNoMatch     = errors.New("old_str not found")
+	ErrEditFileMultiMatch  = errors.New("multiple matches found")
+	ErrEditFileWrite       = errors.New("failed to write edited file")
+	ErrEditFileArgsParse   = errors.New("failed to parse edit_file arguments")
+	ErrEditFileMissingPath = errors.New("edit_file path is required")
 )
 
 // readFileTool reads a file from the local filesystem, with optional
@@ -58,10 +61,10 @@ type readFileArgs struct {
 func (r *readFileTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var a readFileArgs
 	if err := json.Unmarshal(args, &a); err != nil {
-		return "", errors.Join(ErrReadFileArgs, err)
+		return "", errors.Join(ErrReadFileArgsParse, err)
 	}
 	if a.Path == "" {
-		return "", errors.Join(ErrReadFileArgs, fmt.Errorf("path is required"))
+		return "", errors.Join(ErrReadFileMissingPath, fmt.Errorf("path is required"))
 	}
 
 	data, err := os.ReadFile(a.Path)
@@ -129,10 +132,10 @@ type writeFileArgs struct {
 func (w *writeFileTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var a writeFileArgs
 	if err := json.Unmarshal(args, &a); err != nil {
-		return "", errors.Join(ErrWriteFileArgs, err)
+		return "", errors.Join(ErrWriteFileArgsParse, err)
 	}
 	if a.Path == "" {
-		return "", errors.Join(ErrWriteFileArgs, fmt.Errorf("path is required"))
+		return "", errors.Join(ErrWriteFileMissingPath, fmt.Errorf("path is required"))
 	}
 
 	if err := os.WriteFile(a.Path, []byte(a.Content), 0o644); err != nil {
@@ -175,10 +178,10 @@ type editFileArgs struct {
 func (e *editFileTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var a editFileArgs
 	if err := json.Unmarshal(args, &a); err != nil {
-		return "", errors.Join(ErrEditFileArgs, err)
+		return "", errors.Join(ErrEditFileArgsParse, err)
 	}
 	if a.Path == "" {
-		return "", errors.Join(ErrEditFileArgs, fmt.Errorf("path is required"))
+		return "", errors.Join(ErrEditFileMissingPath, fmt.Errorf("path is required"))
 	}
 
 	data, err := os.ReadFile(a.Path)
