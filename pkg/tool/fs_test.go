@@ -233,7 +233,7 @@ func TestEditFile_UniqueMatch_ReplacesContent(t *testing.T) {
 		"new_str": "BETA",
 	}))
 	require.NoError(t, err)
-	require.Contains(t, out, "edited", "summary must indicate an edit occurred")
+	require.Equal(t, "edited "+path, out, "summary must report the edited path exactly")
 
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -319,4 +319,53 @@ func TestEditFile_Schema_ReturnsInnerFunctionObject(t *testing.T) {
 
 func TestEditFile_Name(t *testing.T) {
 	require.Equal(t, "edit_file", tool.NewEditFileTool().Name())
+}
+
+func TestReadFile_OffsetExactlyLastLine_ReturnsLastLineOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lines.txt")
+	require.NoError(t, os.WriteFile(path, []byte("l1\nl2\nl3"), 0o644))
+
+	out, err := tool.NewReadFileTool().Execute(context.Background(), jsonArgs(t, map[string]any{
+		"path":   path,
+		"offset": 3,
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "l3", out, "offset equal to the last line number must return just the last line, not empty")
+}
+
+func TestReadFile_LimitExceedsRemaining_ReturnsToEnd(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lines.txt")
+	require.NoError(t, os.WriteFile(path, []byte("l1\nl2\nl3\nl4\nl5"), 0o644))
+
+	out, err := tool.NewReadFileTool().Execute(context.Background(), jsonArgs(t, map[string]any{
+		"path":   path,
+		"offset": 4,
+		"limit":  10,
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "l4\nl5", out, "limit greater than remaining lines must clamp to the end, not panic or over-read")
+}
+
+func TestEditFile_WriteFailure_ReturnsErrEditFileWrite_FileUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "readonly.txt")
+	original := "alpha\nbeta\nalpha"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+	// Make the file readable but not writable so os.ReadFile succeeds while
+	// os.WriteFile fails with permission denied, isolating the ErrEditFileWrite path.
+	require.NoError(t, os.Chmod(path, 0o444))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+
+	_, err := tool.NewEditFileTool().Execute(context.Background(), jsonArgs(t, map[string]any{
+		"path":    path,
+		"old_str": "beta",
+		"new_str": "BETA",
+	}))
+	require.ErrorIs(t, err, tool.ErrEditFileWrite, "expected ErrEditFileWrite, got %v", err)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, original, string(got), "file must be unchanged when the edit write fails")
 }
